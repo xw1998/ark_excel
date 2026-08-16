@@ -5,6 +5,8 @@
 
 依据《嵌入式系统中实现 Excel (.xlsx) 生成库》设计规范实现。
 
+> 移植上手请看 **[docs/porting_guide.md](docs/porting_guide.md)**（小白友好，覆盖 RT-Thread / svcrtos / 裸机三种平台）。
+
 ## 特性
 
 - **合法 .xlsx**：ZIP(Store) + OOXML，Excel / WPS / LibreOffice 直接打开
