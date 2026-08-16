@@ -112,6 +112,30 @@ static void f_merge_stagger(ark_wb_t *wb, int sh)
     ark_set_int(wb, sh, 5, 1, 1, ARK_STYLE_DATA);
     ark_set_int(wb, sh, 5, 2, 100, ARK_STYLE_NUM_2DEC);
 }
+static void f_merge_rowspan(ark_wb_t *wb, int sh)
+{
+    /* 双行(跨两行)合并 + 与前面列表错开(交错布局):
+     * 行1: 普通列表头(不合并)
+     * 行2-3: A2:A3 纵向双行合并 | C2:D3 2x2 块合并(双行)
+     * 行4-5: B4:B5 右错开一列的双行合并, 与上方列表交错
+     * 行6: 数据行回归列表对齐 */
+    ark_set_str(wb, sh, 1, 1, "项目", ARK_STYLE_HEADER);
+    ark_set_str(wb, sh, 1, 2, "分组", ARK_STYLE_HEADER);
+    ark_set_str(wb, sh, 1, 3, "单位", ARK_STYLE_HEADER);
+    ark_set_str(wb, sh, 1, 4, "备注", ARK_STYLE_HEADER);
+    /* 行2-3: 两组双行合并 */
+    ark_set_str(wb, sh, 2, 1, "竖向双行", ARK_STYLE_MERGE_CENTER);
+    ark_merge(wb, sh, 2, 1, 3, 1);          /* A2:A3 */
+    ark_set_str(wb, sh, 2, 3, "2x2块", ARK_STYLE_MERGE_CENTER);
+    ark_merge(wb, sh, 2, 3, 3, 4);          /* C2:D3 */
+    /* 行4-5: 整体右错开一列的双行合并, 与上方组交错 */
+    ark_set_str(wb, sh, 4, 2, "错开双行", ARK_STYLE_MERGE_CENTER);
+    ark_merge(wb, sh, 4, 2, 5, 2);          /* B4:B5 */
+    ark_set_str(wb, sh, 4, 3, "右错块", ARK_STYLE_MERGE_CENTER);
+    ark_merge(wb, sh, 4, 3, 5, 4);          /* C4:D5 */
+    /* 行6: 回归列表对齐的数据行 */
+    ark_set_int(wb, sh, 6, 1, 42, ARK_STYLE_DATA);
+}
 static void f_altrow(ark_wb_t *wb, int sh)
 {
     uint32_t r;
@@ -306,6 +330,7 @@ static const struct { const char *name; void (*fn)(ark_wb_t *, int); } CASES[] =
     { "escape.xlsx",    f_escape },
     { "merge.xlsx",     f_merge },
     { "merge_stagger.xlsx", f_merge_stagger },
+    { "merge_rowspan.xlsx",  f_merge_rowspan },
     { "altrow.xlsx",    f_altrow },
     { "date.xlsx",      f_date },
     { "formula.xlsx",   f_formula },

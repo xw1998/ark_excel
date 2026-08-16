@@ -57,6 +57,18 @@ check('merge_stagger', 'no overlap', len(m) == 5)
 check('merge_stagger', 'value in topleft', ws['A2'].value == '左组')
 check('merge_stagger', 'data below', ws['A5'].value == 1)
 
+# ---------- merge_rowspan(双行合并+错开) ----------
+ws = L('merge_rowspan.xlsx')['S1']
+m = sorted(str(r) for r in ws.merged_cells.ranges)
+check('merge_rowspan', 'vertical 2-row', 'A2:A3' in m)
+check('merge_rowspan', 'block 2x2',      'C2:D3' in m)
+check('merge_rowspan', 'offset 2-row',    'B4:B5' in m)
+check('merge_rowspan', 'offset 2x2',      'C4:D5' in m)
+check('merge_rowspan', 'no overlap',      len(m) == 4)
+check('merge_rowspan', 'value in topleft', ws['A2'].value == '竖向双行')
+check('merge_rowspan', 'offset value',     ws['B4'].value == '错开双行')
+check('merge_rowspan', 'data below',       ws['A6'].value == 42)
+
 # ---------- altrow ----------
 ws = L('altrow.xlsx')['S1']
 check('altrow', 'odd alt fill', ws['A3'].fill.fgColor.rgb in ('00F2F2F2', 'FFF2F2F2'))
