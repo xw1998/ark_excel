@@ -1,0 +1,18 @@
+# 构建产物
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+build/
+
+# 运行时生成的 xlsx 输出
+out/
+tests/out/
+demo_report.xlsx
+stress.xlsx
+
+# 日志与临时文件
+*.log
+err.txt
+__pycache__/
