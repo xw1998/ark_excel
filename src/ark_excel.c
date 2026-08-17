@@ -165,7 +165,7 @@ typedef struct {
 typedef struct { uint16_t id; const char *fmt; } ark_numfmt_rec_t;
 typedef struct {
     uint8_t  font, fill, border;
-    uint8_t  halign, valign, wrap, indent;
+    uint8_t  halign, valign, wrap, indent, rot;   /* rot: 0-180 角度, 255 竖排 */
     uint16_t numfmt;          /* 内置 id 或 164+ */
 } ark_xf_rec_t;
 
@@ -935,7 +935,7 @@ int ark_wb_add_style(ark_wb_t *wb, const ark_style_def_t *def)
     memset(&xf, 0, sizeof(xf));
     xf.font = f; xf.fill = fl; xf.border = b; xf.numfmt = nf;
     xf.halign = def->halign; xf.valign = def->valign;
-    xf.wrap = def->wrap_text; xf.indent = def->indent;
+    xf.wrap = def->wrap_text; xf.indent = def->indent; xf.rot = def->text_rotation;
     return (int)st_add_xf(&xf);
 }
 
@@ -1231,7 +1231,7 @@ static void gen_styles(ark_wb_t *wb, ark_xw_t *x)
     xw_fmt(x, "<cellXfs count=\"%d\">", s_st.nxfs);
     for (i = 0; i < s_st.nxfs; i++) {
         const ark_xf_rec_t *xf = &s_st.xfs[i];
-        int al = xf->halign || xf->valign || xf->wrap || xf->indent;
+        int al = xf->halign || xf->valign || xf->wrap || xf->indent || xf->rot;
         xw_fmt(x, "<xf numFmtId=\"%d\" fontId=\"%d\" fillId=\"%d\" borderId=\"%d\""
             " applyNumberFormat=\"%d\" applyFont=\"1\" applyFill=\"%d\" "
             "applyBorder=\"%d\" applyAlignment=\"%d\"",
@@ -1248,6 +1248,7 @@ static void gen_styles(ark_wb_t *wb, ark_xw_t *x)
                                   xw_str(x, s_align_v[xf->valign]); xw_ch(x, '\"'); }
                 if (xf->wrap)   xw_str(x, " wrapText=\"1\"");
                 if (xf->indent) xw_fmt(x, " indent=\"%d\"", xf->indent);
+                if (xf->rot)   xw_fmt(x, " textRotation=\"%d\"", xf->rot);
                 xw_str(x, "/>");
             }
             xw_str(x, "</xf>");
@@ -1909,7 +1910,7 @@ static void emit_new_xfs(ark_xw_t *x, uint16_t from)
     uint16_t i;
     for (i = from; i < s_st.nxfs; i++) {
         const ark_xf_rec_t *xf = &s_st.xfs[i];
-        int al = xf->halign || xf->valign || xf->wrap || xf->indent;
+        int al = xf->halign || xf->valign || xf->wrap || xf->indent || xf->rot;
         xw_fmt(x, "<xf numFmtId=\"%d\" fontId=\"%d\" fillId=\"%d\" borderId=\"%d\""
             " applyNumberFormat=\"%d\" applyFont=\"1\" applyFill=\"%d\" "
             "applyBorder=\"%d\" applyAlignment=\"%d\" xfId=\"0\"",
@@ -1924,6 +1925,7 @@ static void emit_new_xfs(ark_xw_t *x, uint16_t from)
                               xw_str(x, s_align_v[xf->valign]); xw_ch(x, '"'); }
             if (xf->wrap)   xw_str(x, " wrapText=\"1\"");
             if (xf->indent) xw_fmt(x, " indent=\"%d\"", xf->indent);
+            if (xf->rot)   xw_fmt(x, " textRotation=\"%d\"", xf->rot);
             xw_str(x, "/></xf>");
         } else xw_str(x, "/>");
     }

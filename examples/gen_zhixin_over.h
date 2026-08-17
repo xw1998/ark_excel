@@ -2,10 +2,10 @@
    gcc ... -include gen_zhixin_over.h ... */
 #define ARK_MAX_CELLS   1492
 #define ARK_MAX_MERGES  3437
-#define ARK_MAX_STYLES  75
-#define ARK_MAX_FONTS   75
-#define ARK_MAX_BORDERS 118
-#define ARK_MAX_FILLS   75
+#define ARK_MAX_STYLES  78
+#define ARK_MAX_FONTS   78
+#define ARK_MAX_BORDERS 124
+#define ARK_MAX_FILLS   78
 #define ARK_MAX_COLDEFS 16388
 #define ARK_MAX_ROWDEFS 280
 #define ARK_MAX_STR     248

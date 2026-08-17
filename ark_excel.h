@@ -162,6 +162,7 @@ typedef struct {
     uint8_t     valign;       /* ARK_VALIGN_xxx */
     uint8_t     wrap_text;
     uint8_t     indent;       /* 缩进级别 0-15 */
+    uint8_t     text_rotation;/* 0-180 旋转角度; 255 = 竖排文字 */
     /* 数字格式: 内置 id 直接填(如 9/14), 或 custom_fmt 指向静态格式串 */
     uint16_t    numfmt_id;    /* 0 = General */
     const char *custom_fmt;   /* 如 "#,##0.0%;[RED]-#,##0.0%" */
