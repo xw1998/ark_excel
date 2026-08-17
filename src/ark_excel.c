@@ -408,6 +408,7 @@ ark_err_t ark_wb_init(ark_wb_t *wb, ark_write_fn write, void *ctx)
     memset(&s_st, 0, sizeof(s_st));
     s_st.fills[1].argb = 0;               /* fill1 = gray125 标记 */
     s_st.nfills = 2;                      /* 0:none 1:gray125 必需 */
+    (void)st_add_border(0,0,0,0, 0);     /* border0 = 空边框(OOXML 惯例) */
     st_register_builtins();
     return ARK_OK;
 }
@@ -420,6 +421,7 @@ void ark_wb_reset(ark_wb_t *wb)
     wb->write = w; wb->ctx = c;
     memset(&s_st, 0, sizeof(s_st));
     s_st.nfills = 2;
+    (void)st_add_border(0,0,0,0, 0);
     st_register_builtins();
 }
 
@@ -1130,7 +1132,7 @@ static void gen_sst(ark_wb_t *wb, ark_xw_t *x)
 }
 
 static const char *s_align_h[6] = { "general","left","center","right","fill","justify" };
-static const char *s_align_v[4] = { "top","center","bottom","justify" };
+static const char *s_align_v[5] = { 0, "top","center","bottom","justify" };
 static const char *s_border_st[8] = { "none","thin","medium","thick",
                                       "dashed","dotted","double","hair" };
 
@@ -1155,7 +1157,10 @@ static void gen_styles(ark_wb_t *wb, ark_xw_t *x)
     for (i = 0; i < s_st.nfonts; i++) {
         const ark_font_rec_t *f = &s_st.fonts[i];
         xw_str(x, "<font>");
-        xw_fmt(x, "<sz val=\"%u.%02u\"/>", f->size_x100 / 100, f->size_x100 % 100);
+        if (f->size_x100 % 100)
+            xw_fmt(x, "<sz val=\"%u.%02u\"/>", f->size_x100/100, f->size_x100%100);
+        else
+            xw_fmt(x, "<sz val=\"%u\"/>", f->size_x100 / 100);
         if (f->color)
             xw_fmt(x, "<color rgb=\"%08X\"/>", f->color);
         if (f->bold)     xw_str(x, "<b/>");
@@ -1394,19 +1399,56 @@ static void gen_sheet(ark_wb_t *wb, ark_xw_t *x, uint8_t si)
     /* sheetData */
     xw_str(x, "<sheetData>");
     cur_row = 0;
-    for (k = 0; k <= wb->cell_count; k++) {
-        const ark_cell_t *c = NULL;
-        if (k < wb->cell_count) {
-            c = &wb->cells[s_order[k]];
-            if (c->sheet != si) continue;
+    /* 无单元格但定义了行高/隐藏的行也要输出 <row/>(OOXML 要求行号递增,
+     * 与单元格行归并输出: 先按行号排序本 sheet 的 rowdefs) */
+    {
+        uint16_t nr = 0, ri, rj;
+        static uint16_t rd_idx[ARK_MAX_ROWDEFS];
+        for (ri = 0; ri < wb->rowdef_count; ri++)
+            if (wb->rowdefs[ri].sheet == (uint8_t)si) rd_idx[nr++] = ri;
+        for (ri = 1; ri < nr; ri++) {          /* 插入排序(项数少) */
+            uint16_t key = rd_idx[ri];
+            for (rj = ri; rj > 0 &&
+                 wb->rowdefs[rd_idx[rj-1]].row > wb->rowdefs[key].row; rj--)
+                rd_idx[rj] = rd_idx[rj-1];
+            rd_idx[rj] = key;
         }
-        if (!c || (cur_row && c->row != cur_row)) {
-            if (cur_row) xw_str(x, "</row>");
-            cur_row = 0;
-        }
-        if (!c) break;
-        if (!cur_row) {
+        uint32_t last_out_row = 0;   /* 已输出的最大行号(含空行) */
+        for (k = 0; k <= wb->cell_count; k++) {
+            const ark_cell_t *c = NULL;
+            uint32_t next_row;
+            if (k < wb->cell_count) {
+                c = &wb->cells[s_order[k]];
+                if (c->sheet != si) continue;
+            }
+            if (!c) { next_row = 0xFFFFFFFFu; }
+            else if (cur_row && c->row == cur_row) next_row = cur_row;
+            else next_row = c->row;
+            /* 先冲刷行号小于下一单元格行的空 rowdef 行 */
+            for (ri = 0; ri < nr; ri++) {
+                ark_rowdef_t *rd = &wb->rowdefs[rd_idx[ri]];
+                if (rd->row >= next_row) break;
+                if (rd->row <= last_out_row) continue;    /* 已随内容行输出 */
+                if (cur_row) { xw_str(x, "</row>"); cur_row = 0; }
+                if (rd->row > last_out_row) last_out_row = rd->row;
+                xw_fmt(x, "<row r=\"%u\"", rd->row);
+                if (rd->height_x20)
+                    xw_fmt(x, " ht=\"%u.%02u\" customHeight=\"1\"",
+                           rd->height_x20 / 20, (rd->height_x20 % 20) * 5);
+                if (rd->hidden) xw_str(x, " hidden=\"1\"/>");
+                else xw_str(x, "/>");
+            }
+            if (!c) {
+                if (cur_row) { xw_str(x, "</row>"); cur_row = 0; }
+                break;
+            }
+            if (cur_row && c->row != cur_row) {
+                xw_str(x, "</row>");
+                cur_row = 0;
+            }
+            if (!cur_row) {
             cur_row = c->row;
+            if (cur_row > last_out_row) last_out_row = cur_row;
             xw_fmt(x, "<row r=\"%d\"", cur_row);
             /* 行属性 */
             {
@@ -1420,8 +1462,9 @@ static void gen_sheet(ark_wb_t *wb, ark_xw_t *x, uint8_t si)
             }
             xw_str(x, ">");
         }
-        emit_cell(wb, x, c);
-    }
+            emit_cell(wb, x, c);
+    }   /* for k */
+    }   /* 空行归并块 */
     xw_str(x, "</sheetData>");
 
     /* autoFilter(必须在 mergeCells 之前) */
@@ -1791,7 +1834,10 @@ static void emit_new_fonts(ark_xw_t *x, uint16_t from)
     for (i = from; i < s_st.nfonts; i++) {
         const ark_font_rec_t *f = &s_st.fonts[i];
         xw_str(x, "<font>");
-        xw_fmt(x, "<sz val=\"%u.%02u\"/>", f->size_x100 / 100, f->size_x100 % 100);
+        if (f->size_x100 % 100)
+            xw_fmt(x, "<sz val=\"%u.%02u\"/>", f->size_x100/100, f->size_x100%100);
+        else
+            xw_fmt(x, "<sz val=\"%u\"/>", f->size_x100 / 100);
         if (f->color)     xw_fmt(x, "<color rgb=\"%08X\"/>", f->color);
         if (f->bold)      xw_str(x, "<b/>");
         if (f->italic)    xw_str(x, "<i/>");
