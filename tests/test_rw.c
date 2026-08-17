@@ -153,7 +153,7 @@ static void case_basic(void)
 
     CHECK(g_wb.merge_count == 1, "load merge");
     CHECK(g_wb.sheets[0].freeze_rows == 1, "load freeze");
-    CHECK(g_wb.coldef_count == 1 && g_wb.coldefs[0].width_x100 == 1800,
+    CHECK(g_wb.coldef_count == 1 && g_wb.coldefs[0].width_x100 == 180000,
           "load col width");
 
     /* 修改: 覆盖 + 追加(带重映射样式) */

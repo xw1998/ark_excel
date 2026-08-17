@@ -115,22 +115,55 @@ def main():
             cells.append((c.row, c.column, v, key))
 
     style_keys = list(styles.keys())
-    for i, k in enumerate(style_keys):
-        styles[k] = i
     merges = [(m.min_row, m.min_col, m.max_row, m.max_col) for m in ws.merged_cells.ranges]
     colw = [(cd.min or idx, get_column_letter(idx), cd.width)
             for idx, cd in sorted(ws.column_dimensions.items())
             if cd.width] if False else None
     # 列宽: 按 min..max 展开为逐列
     colw = {}
+    colhidden = set()
+    colstyle = {}   # ci -> styledef key(用源 xf 索引映射到生成的 sid)
     for idx, cd in ws.column_dimensions.items():
-        if cd.width:
-            lo = cd.min or idx
-            hi = cd.max or idx
-            for ci in range(lo, hi + 1):
+        lo = cd.min or idx
+        hi = cd.max or idx
+        for ci in range(lo, hi + 1):
+            if cd.width:
                 colw[ci] = cd.width
+            if cd.hidden:
+                colhidden.add(ci)
+            if getattr(cd, 'style', None) and cd.style:
+                colstyle[ci] = cd.style  # 源 cellXf 索引, 后面映射
     rowh = {r: rd.height for r, rd in ws.row_dimensions.items() if rd.height}
+    rowhidden = {r for r, rd in ws.row_dimensions.items() if rd.hidden}
     sheet_name = ws.title
+
+    # 解析源 styles.xml: 列样式 xf 的 font/alignment 属性
+    colstyle_defs = {}
+    if colstyle:
+        import zipfile as _zf
+        from xml.etree import ElementTree as _ET
+        NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+        _z = _zf.ZipFile(src)
+        _st = _ET.fromstring(_z.read('xl/styles.xml'))
+        _fonts = _st.find(NS + 'fonts')
+        _fl = []
+        for _f in _fonts:
+            _sz = _f.find(NS + 'sz'); _nm = _f.find(NS + 'name')
+            _fl.append((_nm.get('val') if _nm is not None else '',
+                        int(round(float(_sz.get('val')) * 100)) if _sz is not None else 1100))
+        _xfs = _st.find(NS + 'cellXfs')
+        for ci, xfidx in colstyle.items():
+            _xf = list(_xfs)[xfidx]
+            _al = _xf.find(NS + 'alignment')
+            va = _al.get('vertical') if _al is not None else None
+            fname, fsize = _fl[int(_xf.get('fontId', 0))]
+            key = (fname, fsize, 0, 0, VALIGN.get(va, 0), 0) + (0,0,0,0) + (0,0,0,0, 0)
+            styles[key] = None
+            colstyle_defs[ci] = key
+
+    style_keys = list(styles.keys())
+    for i, k in enumerate(style_keys):
+        styles[k] = i
 
     # ---------- 生成容量覆盖头(编译时 -include 到所有翻译单元!) ----------
     over = dst.rsplit('.', 1)[0] + '_over.h'
@@ -179,18 +212,35 @@ def main():
     A('        sid[i] = ark_wb_add_style(wb, &defs[i]);')
     A('    (void)sid;')
     # 列宽 / 行高
-    # 合并连续同宽列为范围, 与源文件的 <col min max> 一致
+    # 合并连续同宽且同隐藏属性的列为范围, 与源文件的 <col min max> 一致
     col_ranges = []
-    for ci in sorted(colw):
-        w = colw[ci]
-        if col_ranges and col_ranges[-1][1] == ci - 1 and col_ranges[-1][2] == w:
+    for ci in sorted(set(colw) | colhidden | set(colstyle_defs)):
+        w = colw.get(ci)
+        hd = ci in colhidden
+        ck = colstyle_defs.get(ci)
+        if col_ranges and col_ranges[-1][1] == ci - 1 and col_ranges[-1][2] == w \
+           and col_ranges[-1][3] == hd and col_ranges[-1][4] == ck:
             col_ranges[-1][1] = ci
         else:
-            col_ranges.append([ci, ci, w])
-    for lo, hi, w in col_ranges:
-        A('    ark_set_col_width(wb, sh, %d, %d, %s);' % (lo, hi, repr(w)))
-    for r in sorted(rowh):
-        A('    ark_set_row_height(wb, sh, %d, %s);' % (r, repr(rowh[r])))
+            col_ranges.append([ci, ci, w, hd, ck])
+    for lo, hi, w, hd, ck in col_ranges:
+        if w is not None:
+            if lo == 1:
+                _st = z.read('xl/styles.xml').decode('utf-8')
+                _f0 = re.search(r'<font>.*?</font>|<font/>', re.search(r'<fonts[^>]*>(.*?)</fonts>', _st, re.S).group(1), re.S).group(0)
+                _nm = re.search(r'<name val="([^"]+)"', _f0)
+                _sz = re.search(r'<sz val="([\d.]+)"', _f0)
+                A('    ark_set_default_font("%s", %d);' % (_nm.group(1) if _nm else 'Calibri', int(float(_sz.group(1)) * 100) if _sz else 1100))
+            A('    ark_set_col_width(wb, sh, %d, %d, %.9g);' % (lo, hi, w))
+        if hd:
+            A('    ark_set_col_hidden(wb, sh, %d, %d, 1);' % (lo, hi))
+        if ck is not None:
+            A('    ark_set_col_style(wb, sh, %d, %d, sid[%d]);' % (lo, hi, styles[ck]))
+    for r in sorted(set(rowh) | rowhidden):
+        if r in rowh:
+            A('    ark_set_row_height(wb, sh, %d, %.9g);' % (r, rowh[r]))
+        if r in rowhidden:
+            A('    ark_set_row_hidden(wb, sh, %d, 1);' % r)
     # 单元格
     for r, c, v, key in cells:
         sid = styles[key]

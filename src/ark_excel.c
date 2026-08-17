@@ -252,6 +252,16 @@ static uint16_t st_add_xf(const ark_xf_rec_t *xf)
 }
 
 /*! 注册预定义样式, 必须与 ark_excel.h 中 ARK_STYLE_* 枚举一一对应 */
+
+void ark_set_default_font(const char *name, uint16_t size_x100)
+{
+    /* fonts[0] 是工作簿默认字体, 影响列宽换算基数(MDW) */
+    if (s_st.nfonts == 0) return;
+    if (name) s_st.fonts[0].name = name;
+    if (size_x100) s_st.fonts[0].size_x100 = size_x100;
+}
+
+
 static void st_register_builtins(void)
 {
     uint8_t f_def   = st_add_font("Calibri", 1100, 0, 0, 0, 0);
@@ -609,29 +619,83 @@ ark_err_t ark_merge(ark_wb_t *wb, int sheet, uint32_t r1, uint16_t c1,
     return ARK_OK;
 }
 
-static ark_err_t coldef_add(ark_wb_t *wb, int sheet, int first, int last,
-                            uint16_t w100, uint8_t hidden)
+static void ark__fmt_width(char *buf, unsigned bufsz, unsigned whole, unsigned frac)
+{
+    /* print width like Excel does: "2.75", "5.5083"; strip trailing zeros */
+    unsigned pos = 0;
+    if (whole == 0 && frac == 0) { buf[0] = '0'; buf[1] = 0; return; }
+    { char wb2[12]; int n = 0, i;
+      unsigned w = whole;
+      if (w == 0) wb2[n++] = '0';
+      while (w) { wb2[n++] = (char)('0' + w % 10); w /= 10; }
+      for (i = n - 1; i >= 0; i--) buf[pos++] = wb2[i]; }
+    if (frac) {
+        char fb[8];
+        int n = 0, i;
+        while (frac) { fb[n++] = (char)('0' + frac % 10); frac /= 10; }
+        for (i = n; i < 4; i++) fb[n++] = '0';  /* pad to 4 digits */
+        /* fb now holds digits reversed (padded); strip trailing zeros = leading zeros in reversed order */
+        {
+            int start = 0;
+            while (start < n - 1 && fb[start] == '0') start++;
+            if (n > 0 && fb[start] != '0') {
+                buf[pos++] = '.';
+                for (i = n - 1; i >= start; i--) buf[pos++] = fb[i];
+            }
+        }
+    }
+    buf[pos] = 0;
+    (void)bufsz;
+}
+
+static ark_err_t coldef_add2(ark_wb_t *wb, int sheet, int first, int last,
+                             uint32_t w100, uint8_t hidden, uint16_t style)
 {
     ark_rd_touch(wb, (uint8_t)sheet);
     if (!wb) return ARK_ERR_INVALID_ARG;
     if (wb->saved) return ARK_ERR_SAVED;
     if (sheet < 0 || (uint32_t)sheet >= wb->sheet_count) return ARK_ERR_INVALID_SHEET;
+    uint16_t ci;
     if (first < 1 || last < first || (uint32_t)last > ARK_MAX_COL) return ARK_ERR_INVALID_COL;
+    /* merge into an existing entry with identical range to avoid
+     * overlapping <col> elements (Excel mis-parses duplicated ranges) */
+    for (ci = 0; ci < wb->coldef_count; ci++) {
+        ark_coldef_t *cd = &wb->coldefs[ci];
+        if (cd->sheet == (uint8_t)sheet && cd->first == first && cd->last == last) {
+            if (w100)   cd->width_x100 = w100;
+            if (hidden) cd->hidden = 1;
+            if (style)  cd->style = style;
+            return ARK_OK;
+        }
+    }
     if (wb->coldef_count >= ARK_MAX_COLDEFS) return ARK_ERR_TABLE_FULL;
     wb->coldefs[wb->coldef_count].first = (uint16_t)first;
     wb->coldefs[wb->coldef_count].last = (uint16_t)last;
     wb->coldefs[wb->coldef_count].sheet = (uint8_t)sheet;
     wb->coldefs[wb->coldef_count].width_x100 = w100;
     wb->coldefs[wb->coldef_count].hidden = hidden;
+    wb->coldefs[wb->coldef_count].style = style;
     wb->coldef_count++;
     return ARK_OK;
+}
+
+static ark_err_t coldef_add(ark_wb_t *wb, int sheet, int first, int last,
+                            uint32_t w100, uint8_t hidden)
+{
+    return coldef_add2(wb, sheet, first, last, w100, hidden, 0);
+}
+ark_err_t ark_set_col_style(ark_wb_t *wb, int sheet, int first, int last,
+                            uint16_t style)
+{
+    if (style >= s_st.nxfs) return ARK_ERR_INVALID_ARG;
+    return coldef_add2(wb, sheet, first, last, 0, 0, style);
 }
 
 ark_err_t ark_set_col_width(ark_wb_t *wb, int sheet, int first, int last,
                             double width)
 {
     if (width < 0 || width > 255) return ARK_ERR_INVALID_ARG;
-    return coldef_add(wb, sheet, first, last, (uint16_t)(width * 100 + 0.5), 0);
+    return coldef_add(wb, sheet, first, last, (uint32_t)(width * 10000 + 0.5), 0);
 }
 ark_err_t ark_set_col_hidden(ark_wb_t *wb, int sheet, int first, int last,
                              int hidden)
@@ -1408,10 +1472,14 @@ static void gen_sheet(ark_wb_t *wb, ark_xw_t *x, uint8_t si)
         if (cd->sheet != si) continue;
         if (first) { xw_str(x, "<cols>"); first = 0; }
         xw_fmt(x, "<col min=\"%d\" max=\"%d\"", cd->first, cd->last);
-        if (cd->width_x100)
-            xw_fmt(x, " width=\"%u.%02u\" customWidth=\"1\"",
-                   cd->width_x100 / 100, cd->width_x100 % 100);
+        if (cd->width_x100) {
+            char wbuf[24];
+            unsigned frac = cd->width_x100 % 10000;
+            ark__fmt_width(wbuf, sizeof(wbuf), cd->width_x100 / 10000, frac);
+            xw_fmt(x, " width=\"%s\" customWidth=\"1\"", wbuf);
+        }
         if (cd->hidden) xw_str(x, " hidden=\"1\"");
+        if (cd->style)  xw_fmt(x, " style=\"%d\"", cd->style);
         xw_str(x, "/>");
     }
     if (!first) xw_str(x, "</cols>");

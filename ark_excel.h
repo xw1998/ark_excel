@@ -249,7 +249,8 @@ typedef struct {
     uint16_t first, last;      /* 列范围 */
     uint8_t  sheet;
     uint8_t  hidden;
-    uint16_t width_x100;       /* 列宽(字符单位 *100; 0=默认) */
+    uint16_t style;            /* 列默认样式(cellXf 索引, 0=无) */
+    uint32_t width_x100;       /* 列宽(字符单位 *10000; 0=默认) */
 } ark_coldef_t;
 
 typedef struct {
@@ -430,6 +431,11 @@ ark_err_t ark_set_col_width(ark_wb_t *wb, int sheet, int first, int last,
                             double width);
 ark_err_t ark_set_col_hidden(ark_wb_t *wb, int sheet, int first, int last,
                              int hidden);
+/*! 设置列默认样式(整列未显式设置样式的格生效, 如宋体8号垂直居中) */
+ark_err_t ark_set_col_style (ark_wb_t *wb, int sheet, int first, int last,
+                             uint16_t style);
+/*! 设置工作簿默认字体(fonts[0]), 影响默认样式与列宽换算; size_x100=0 表示不改字号 */
+void ark_set_default_font(const char *name, uint16_t size_x100);
 /*! 行高(磅); 每行一条记录 */
 ark_err_t ark_set_row_height(ark_wb_t *wb, int sheet, uint32_t row,
                              double height_pt);
