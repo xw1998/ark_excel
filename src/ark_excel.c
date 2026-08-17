@@ -158,6 +158,8 @@ typedef struct {
 typedef struct { uint32_t argb; } ark_fill_rec_t;
 typedef struct {
     uint8_t  l, r, t, b;      /* ARK_BORDER_xxx */
+    uint8_t  dl;              /* 对角线样式 ARK_BORDER_xxx, 0=无 */
+    uint8_t  dup, ddown;      /* diagonalUp / diagonalDown */
     uint32_t color;
 } ark_border_rec_t;
 typedef struct { uint16_t id; const char *fmt; } ark_numfmt_rec_t;
@@ -210,21 +212,28 @@ static uint8_t st_add_fill(uint32_t argb)
     s_st.fills[s_st.nfills++].argb = argb;
     return (uint8_t)(s_st.nfills - 1);
 }
-static uint8_t st_add_border(uint8_t l, uint8_t r, uint8_t t, uint8_t b,
-                             uint32_t color)
+static uint8_t st_add_border2(uint8_t l, uint8_t r, uint8_t t, uint8_t b,
+                              uint8_t dl, uint8_t dup, uint8_t ddown,
+                              uint32_t color)
 {
     uint16_t i;
     for (i = 0; i < s_st.nborders; i++)
         if (s_st.borders[i].l == l && s_st.borders[i].r == r &&
             s_st.borders[i].t == t && s_st.borders[i].b == b &&
+            s_st.borders[i].dl == dl && s_st.borders[i].dup == dup &&
+            s_st.borders[i].ddown == ddown &&
             s_st.borders[i].color == color)
             return (uint8_t)i;
     if (s_st.nborders >= ARK_MAX_BORDERS) return 0;
     s_st.borders[s_st.nborders].l = l; s_st.borders[s_st.nborders].r = r;
     s_st.borders[s_st.nborders].t = t; s_st.borders[s_st.nborders].b = b;
+    s_st.borders[s_st.nborders].dl = dl;
+    s_st.borders[s_st.nborders].dup = dup;
+    s_st.borders[s_st.nborders].ddown = ddown;
     s_st.borders[s_st.nborders].color = color;
     return (uint8_t)(s_st.nborders++);
 }
+#define st_add_border(l,r,t,b,color) st_add_border2(l,r,t,b,0,0,0,color)
 static uint16_t st_add_numfmt(const char *fmt)
 {
     uint16_t i;
@@ -913,8 +922,13 @@ int ark_wb_add_style(ark_wb_t *wb, const ark_style_def_t *def)
     br = def->border_all ? def->border_all : def->border_right;
     bt = def->border_all ? def->border_all : def->border_top;
     bb = def->border_all ? def->border_all : def->border_bottom;
-    b = (bl || br || bt || bb) ? st_add_border(bl, br, bt, bb, def->border_color)
-                               : 0;
+    {
+        uint8_t dl = def->diag_style;
+        uint8_t dup = def->diag_up, ddown = def->diag_down;
+        b = (bl || br || bt || bb || (dl && (dup || ddown)))
+            ? st_add_border2(bl, br, bt, bb, dl, dup, ddown, def->border_color)
+            : 0;
+    }
     if (def->custom_fmt) nf = st_add_numfmt(def->custom_fmt);
     else if (def->numfmt_id) nf = def->numfmt_id;
 
@@ -1182,7 +1196,10 @@ static void gen_styles(ark_wb_t *wb, ark_xw_t *x)
     xw_fmt(x, "<borders count=\"%d\">", s_st.nborders);
     for (i = 0; i < s_st.nborders; i++) {
         const ark_border_rec_t *b = &s_st.borders[i];
-        xw_str(x, "<border>");
+        if (b->dup && b->ddown) xw_str(x, "<border diagonalUp=\"1\" diagonalDown=\"1\">");
+        else if (b->dup)        xw_str(x, "<border diagonalUp=\"1\">");
+        else if (b->ddown)      xw_str(x, "<border diagonalDown=\"1\">");
+        else                    xw_str(x, "<border>");
         if (b->l) { xw_str(x, "<left style=\""); xw_str(x, s_border_st[b->l]);
                     if (b->color) xw_fmt(x, "\"><color rgb=\"%08X\"/></left>",
                                          b->color);
@@ -1203,7 +1220,9 @@ static void gen_styles(ark_wb_t *wb, ark_xw_t *x)
                                          b->color);
                     else xw_str(x, "\"/>"); }
         else xw_str(x, "<bottom/>");
-        xw_str(x, "<diagonal/></border>");
+        if (b->dl) { xw_str(x, "<diagonal style=\""); xw_str(x, s_border_st[b->dl]);
+                     xw_ch(x, '\"'); xw_str(x, "/></border>"); }
+        else xw_str(x, "<diagonal/></border>");
     }
     xw_str(x, "</borders>");
     /* cellStyleXfs + cellXfs */
@@ -1860,7 +1879,10 @@ static void emit_new_borders(ark_xw_t *x, uint16_t from)
     uint16_t i;
     for (i = from; i < s_st.nborders; i++) {
         const ark_border_rec_t *b = &s_st.borders[i];
-        xw_str(x, "<border>");
+        if (b->dup && b->ddown) xw_str(x, "<border diagonalUp=\"1\" diagonalDown=\"1\">");
+        else if (b->dup)        xw_str(x, "<border diagonalUp=\"1\">");
+        else if (b->ddown)      xw_str(x, "<border diagonalDown=\"1\">");
+        else                    xw_str(x, "<border>");
         if (b->l) { xw_str(x, "<left style=\""); xw_str(x, s_border_st[b->l]);
                     if (b->color) xw_fmt(x, "\"><color rgb=\"%08X\"/></left>", b->color);
                     else xw_str(x, "\"/>"); }
@@ -1877,7 +1899,9 @@ static void emit_new_borders(ark_xw_t *x, uint16_t from)
                     if (b->color) xw_fmt(x, "\"><color rgb=\"%08X\"/></bottom>", b->color);
                     else xw_str(x, "\"/>"); }
         else xw_str(x, "<bottom/>");
-        xw_str(x, "<diagonal/></border>");
+        if (b->dl) { xw_str(x, "<diagonal style=\""); xw_str(x, s_border_st[b->dl]);
+                     xw_ch(x, '\"'); xw_str(x, "/></border>"); }
+        else xw_str(x, "<diagonal/></border>");
     }
 }
 static void emit_new_xfs(ark_xw_t *x, uint16_t from)

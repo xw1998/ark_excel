@@ -154,6 +154,9 @@ typedef struct {
     uint8_t     border_all;   /* ARK_BORDER_xxx 应用到四边 */
     uint8_t     border_left, border_right, border_top, border_bottom;
     uint32_t    border_color; /* 边框颜色, 0 = 黑 */
+    uint8_t     diag_style;   /* 对角线: ARK_BORDER_xxx, 0=无 */
+    uint8_t     diag_up;      /* 1 = 左下到右上 */
+    uint8_t     diag_down;    /* 1 = 左上到右下 */
     /* 对齐 */
     uint8_t     halign;       /* ARK_HALIGN_xxx */
     uint8_t     valign;       /* ARK_VALIGN_xxx */

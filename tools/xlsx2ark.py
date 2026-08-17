@@ -104,7 +104,11 @@ def main():
             ha = HALIGN.get(c.alignment.horizontal, 0)
             va = VALIGN.get(c.alignment.vertical, 0)
             wrap = 1 if c.alignment.wrap_text else 0
-            key = (fname, fsize, bold, ha, va, wrap) + b
+            dl = BORDER_MAP.get(c.border.diagonal.style, 0) if (c.border.diagonal and c.border.diagonal.style) else 0
+            dup = 1 if c.border.diagonalUp else 0
+            ddown = 1 if c.border.diagonalDown else 0
+            nfid = c._style.numFmtId if hasattr(c, '_style') and c._style is not None else 0
+            key = (fname, fsize, bold, ha, va, wrap) + b + (dl, dup, ddown, nfid)
             styles[key] = None
             fonts.add(fname)
             cells.append((c.row, c.column, v, key))
@@ -165,9 +169,9 @@ def main():
     # 样式注册
     A('    static const ark_style_def_t defs[] = {')
     for k in style_keys:
-        fname, fsize, bold, ha, va, wrap, bl, br, bt, bb = k
-        A('        { F_0, %d, %d, 0, 0, 0, 0, 0, %d, %d, %d, %d, 0, %d, %d, %d, 0, 0, 0 },'
-          % (fsize, bold, bl, br, bt, bb, ha, va, wrap))
+        fname, fsize, bold, ha, va, wrap, bl, br, bt, bb, dl, dup, ddown, nfid = k
+        A('        { F_0, %d, %d, 0, 0, 0, 0, 0, %d, %d, %d, %d, 0, %d, %d, %d, %d, %d, %d, 0, %d, 0 },'
+          % (fsize, bold, bl, br, bt, bb, dl, dup, ddown, ha, va, wrap, nfid))
     A('    };')
     A('    int sid[%d];' % len(style_keys))
     A('    for (unsigned i = 0; i < sizeof defs / sizeof defs[0]; i++)')
